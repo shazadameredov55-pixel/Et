@@ -1,14 +1,18 @@
+# ============================================================
+# ZENROWS ETSY SCRAPER
+# ============================================================
+
 import logging
 import re
 from datetime import datetime
 import pandas as pd
+import requests
 from bs4 import BeautifulSoup
-from curl_cffi import requests
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("etsy_scraper")
 
-SCRAPER_API_KEY = "319f682bebc62e5843428a13a10c8137"
+ZENROWS_API_KEY = "5212e3289eb56186aabd91031d908efdb093262b"
 SEARCH_KEYWORDS = ["digital planner", "canva template"]
 PAGES_PER_KEYWORD = 3
 OUTPUT_XLSX = "etsy_digital_products.xlsx"
@@ -23,27 +27,27 @@ def parse_review_count(raw_text: str) -> str:
 def scrape_search_page(session, keyword: str, page: int) -> list:
     results = []
     target_url = f"https://www.etsy.com/search?q={keyword.replace(' ', '+')}&page={page}"
-    # render=true veya timeout zorlaması yok, direkt hafif proxy isteği
-    api_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}"
+    
+    # ZenRows API endpoint (js_render ve antibot aktif)
+    api_url = f"https://api.zenrows.com/v1/?apikey={ZENROWS_API_KEY}&url={target_url}&js_render=true&antibot=true"
 
     try:
-        logger.info(f"Çekiliyor: {keyword} - Sayfa {page}")
-        # impersonate="chrome120" ile tarayıcı taklidi yapılıyor
-        response = session.get(api_url, impersonate="chrome120", timeout=15)
+        logger.info(f"ZenRows üzerinden çekiliyor: {keyword} - Sayfa {page}")
+        response = session.get(api_url, timeout=60)
         
         if response.status_code != 200:
-            logger.error(f"HTTP Hata Kodu: {response.status_code}")
+            logger.error(f"HTTP Hata Kodu: {response.status_code} -> {target_url}")
             return results
 
     except Exception as e:
-        logger.error(f"Bağlantı hatası: {e}")
+        logger.error(f"Bağlantı hatası: {target_url} -> {e}")
         return results
 
     soup = BeautifulSoup(response.text, "html.parser")
     cards = soup.select("div.v2-listing-card, div[data-listing-id], li[data-listing-id], a.listing-link")
     
     if not cards:
-        logger.warning(f"'{keyword}' - sayfa {page}: Kart bulunamadı.")
+        logger.warning(f"'{keyword}' - sayfa {page}: Ürün kartı bulunamadı.")
         return results
 
     logger.info(f"'{keyword}' - sayfa {page}: {len(cards)} ürün bulundu.")
@@ -98,10 +102,10 @@ def main():
         df.drop_duplicates(subset=["Product URL"], inplace=True)
         df.to_excel(OUTPUT_XLSX, index=False)
         df.to_csv(OUTPUT_CSV, index=False, encoding="utf-8-sig")
-        logger.info(f"Tamamlandı. Toplam {len(df)} ürün kaydedildi.")
+        logger.info(f"Tamamlandı. Toplam {len(df)} benzersiz ürün kaydedildi.")
     else:
         logger.warning("Veri çekilemedi.")
 
 if __name__ == "__main__":
     main()
-    
+            

@@ -28,7 +28,7 @@ logger = logging.getLogger("etsy_scraper")
 SCRAPER_API_KEY = "319f682bebc62e5843428a13a10c8137"
 
 SEARCH_KEYWORDS = ["digital planner", "canva template"]
-PAGES_PER_KEYWORD = 3  # Kota tasarrufu için her kelimeden 3 sayfa
+PAGES_PER_KEYWORD = 3
 OUTPUT_XLSX = "etsy_digital_products.xlsx"
 OUTPUT_CSV = "etsy_digital_products.csv"
 
@@ -43,8 +43,8 @@ def parse_review_count(raw_text: str) -> str:
 
 
 def get_scraperapi_url(target_url: str) -> str:
-    """İsteği ScraperAPI üzerinden konut IP'si ile yönlendirir."""
-    return f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&render=true"
+    """İsteği ScraperAPI üzerinden hızlıca yönlendirir (render=true kaldırıldı)."""
+    return f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={target_url}&country_code=us"
 
 
 def scrape_search_page(session, keyword: str, page: int) -> list:
@@ -54,7 +54,7 @@ def scrape_search_page(session, keyword: str, page: int) -> list:
 
     try:
         logger.info(f"ScraperAPI üzerinden sayfa çekiliyor: {keyword} - Sayfa {page}")
-        response = session.get(api_url, timeout=60)
+        response = session.get(api_url, timeout=30)
         
         if response.status_code != 200:
             logger.error(f"HTTP Hata Kodu: {response.status_code} -> {target_url}")
@@ -165,7 +165,7 @@ def save_results(data: list):
 
 
 def main():
-    logger.info("Etsy scraping işlemi (ScraperAPI) başlıyor...")
+    logger.info("Etsy scraping işlemi (ScraperAPI Hızlı Mod) başlıyor...")
     results = scrape_all(SEARCH_KEYWORDS, PAGES_PER_KEYWORD)
     save_results(results)
     logger.info("İşlem tamamlandı.")

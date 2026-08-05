@@ -23,11 +23,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wget curl unzip libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
           python -m pip install --upgrade pip
-          pip install openai botasaurus pandas openpyxl
+          pip install botasaurus pandas openpyxl requests
 
-      - name: AI Scraper Scriptini Çalıştır
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      - name: Scraper Scriptini Çalıştır
         run: |
           python main.py
 
@@ -36,6 +34,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data_outputs/
-          git commit -m "Automated Etsy Excel Export" || true
+          git commit -m "Automated Etsy AI Cleaned Excel Export" || true
           git push || true
           

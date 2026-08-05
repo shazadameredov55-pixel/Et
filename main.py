@@ -3,20 +3,21 @@ import json
 import time
 import requests
 import pandas as pd
+from bs4 import BeautifulSoup
 from botasaurus.browser import browser, Driver
 
 # ==========================================
-# 1. BOTASAURUS KAZIMA MOTORU
+# 1. BOTASAURUS KAZIMA MOTORU (Anti-Bot & Scroll Güçlendirilmiş)
 # ==========================================
 @browser(
     headless=True,
-    block_images=True,
+    block_images=False,  # Resimleri yüklemek insan davranışını daha iyi taklit eder
     reuse_driver=True,
-    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 )
 def scrape_etsy_headphones(driver: Driver, data):
     target_count = data.get("target_count", 1000)
-    base_url = "https://www.etsy.com/search?q=headphones&ref=pagination&page="
+    base_url = "https://www.etsy.com/search?q=headphones&page="
     
     scraped_products = []
     page = 1
@@ -27,51 +28,61 @@ def scrape_etsy_headphones(driver: Driver, data):
         url = f"{base_url}{page}"
         print(f"[Botasaurus] Sayfa taranıyor: {page} -> {url}")
         
-        driver.google_get(url)
-        time.sleep(4)  # Sayfanın yüklenmesi için 4 saniye bekleme
+        driver.get(url)
+        time.sleep(5)  # Sayfanın yüklenmesi için bekle
         
-        # Etsy grid listeleme kartları için farklı selector kombinasyonları
-        items = driver.select_all('div.v2-listing-card')
-        if not items:
-            items = driver.select_all('li.wt-list-unstyled')
-        if not items:
-            items = driver.select_all('div[data-search-results] div.listing-link')
-        if not items:
-            items = driver.select_all('ol.responsive-listing-grid > li')
-            
-        if not items:
-            print(f"[Botasaurus] Sayfa {page}'de ürün bulunamadı veya son sayfaya ulaşıldı.")
-            if page > 1:
+        # Sayfayı aşağı kaydırarak lazy-load ürünlerin yüklenmesini sağla
+        driver.run_js("window.scrollTo(0, document.body.scrollHeight/2);")
+        time.sleep(2)
+        driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
+        
+        # HTML kaynağını çekip BeautifulSoup ile parçala
+        soup = BeautifulSoup(driver.page_html, 'html.parser')
+        
+        # Etsy'deki tüm olası ürün kartı sınıfları
+        cards = soup.select('div.v2-listing-card, li.wt-list-unstyled, div[data-search-results] a, ol.responsive-listing-grid > li')
+        
+        if not cards:
+            print(f"[Botasaurus] Sayfa {page}'de kart bulunamadı. Bloklanmış veya son sayfada olabilir.")
+            if page > 2:
                 break
             page += 1
             continue
             
-        print(f"[Botasaurus] Sayfa {page}'de {len(items)} adet kart bulundu.")
+        print(f"[Botasaurus] Sayfa {page}'de {len(cards)} adet ham ürün kartı tespit edildi.")
         
-        for item in items:
+        for card in cards:
             if len(scraped_products) >= target_count:
                 break
                 
             try:
-                title_elem = item.select('.v2-listing-card__title, h3, .wt-text-title-01')
-                price_elem = item.select('.currency-value, .lc-price, .wt-text-title-01')
-                rating_elem = item.select('.wt-align-items-center span.wt-text-title-small, .wt-rating span')
-                reviews_elem = item.select('.wt-text-body-01, .wt-text-caption')
-                link_elem = item.select('a.listing-link, a[href*="/listing/"]')
-                shop_elem = item.select('.v2-listing-card__shop-name, .wt-text-caption')
+                # Başlık arama
+                title_elem = card.select_one('h3, .v2-listing-card__title, .wt-text-title-01')
+                title = title_elem.get_text(strip=True) if title_elem else ""
 
-                title = title_elem.text.strip() if title_elem else ""
-                price = price_elem.text.strip() if price_elem else ""
-                rating = rating_elem.text.strip() if rating_elem else ""
-                reviews = reviews_elem.text.strip() if reviews_elem else ""
-                
+                # Link arama
+                link_elem = card.select_one('a.listing-link, a[href*="/listing/"]')
                 link = ""
-                if link_elem:
-                    link = link_elem.attributes.get('href', '')
-                elif item.name == 'a':
-                    link = item.attributes.get('href', '')
+                if link_elem and link_elem.has_attr('href'):
+                    link = link_elem['href']
+                elif card.name == 'a' and card.has_attr('href'):
+                    link = card['href']
 
-                shop = shop_elem.text.strip() if shop_elem else ""
+                # Fiyat arama
+                price_elem = card.select_one('.currency-value, .lc-price, .wt-text-title-01, p.wt-text-title-01')
+                price = price_elem.get_text(strip=True) if price_elem else ""
+
+                # Puan ve Yorum arama
+                rating_elem = card.select_one('.wt-align-items-center span.wt-text-title-small, .wt-rating span')
+                reviews_elem = card.select_one('.wt-text-body-01, .wt-text-caption')
+                
+                rating = rating_elem.get_text(strip=True) if rating_elem else ""
+                reviews = reviews_elem.get_text(strip=True) if reviews_elem else ""
+
+                # Mağaza adı
+                shop_elem = card.select_one('.v2-listing-card__shop-name, .wt-text-caption')
+                shop = shop_elem.get_text(strip=True) if shop_elem else ""
 
                 if title and link:
                     scraped_products.append({

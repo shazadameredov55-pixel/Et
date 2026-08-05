@@ -1,9 +1,12 @@
-name: Etsy AI Headphones Scraper Worker
+name: Botasaurus Etsy Scraper Workflow
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 */6 * * *'
+
+permissions:
+  contents: write
 
 jobs:
   scrape-etsy:
@@ -13,17 +16,22 @@ jobs:
       - name: Depoyu Klonla
         uses: actions/checkout@v4
 
-      - name: Python Kurulumu
+      - name: Python Ortamını Kur
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      - name: Bağımlılıkları Yükle
+      - name: Google Chrome ve Bağımlılıkları Kur (Botasaurus için)
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget curl unzip libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
+          sudo apt-get install -y wget curl unzip libnss3 libgconf-2-4 libasound2
+          wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i google-chrome-stable_current_amd64.deb || sudo apt-get install -fy
+
+      - name: Python Bağımlılıklarını Yükle
+        run: |
           python -m pip install --upgrade pip
-          pip install botasaurus pandas openpyxl requests
+          pip install pandas openpyxl requests botasaurus
 
       - name: Scraper Scriptini Çalıştır
         run: |
@@ -34,6 +42,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data_outputs/
-          git commit -m "Automated Etsy AI Cleaned Excel Export" || true
-          git push || true
+          git commit -m "auto: Botasaurus ile 1000 kulaklık verisi güncellendi [skip ci]" || echo "Değişiklik yok"
+          git push
           

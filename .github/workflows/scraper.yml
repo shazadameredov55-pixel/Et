@@ -3,7 +3,7 @@ name: Botasaurus Etsy Scraper Workflow
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */4 * * *'
 
 permissions:
   contents: write
@@ -21,10 +21,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Google Chrome ve Bağımlılıkları Kur (Botasaurus için)
+      - name: Google Chrome ve Ubuntu 24.04 Bağımlılıklarını Kur
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget curl unzip libnss3 libgconf-2-4 libasound2
+          sudo apt-get install -y wget curl unzip libnss3 libasound2t64 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libnspr4 libxcomposite1 libxdamage1 libxfixes3 libxrandr2
           wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo dpkg -i google-chrome-stable_current_amd64.deb || sudo apt-get install -fy
 

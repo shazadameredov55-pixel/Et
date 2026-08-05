@@ -1,12 +1,11 @@
 import os
 import json
-import re
+import requests
 import pandas as pd
-from openai import OpenAI
 from botasaurus.browser import browser, Driver
 
 # ==========================================
-# 1. BOTASAURUS KAZIMA ARACI (TOOL)
+# 1. BOTASAURUS KAZIMA MOTORU
 # ==========================================
 @browser(
     headless=True,
@@ -20,7 +19,7 @@ def scrape_etsy_headphones(driver: Driver, data):
     scraped_products = []
     page = 1
     
-    print(f"[Botasaurus] Kazıma başlatıldı. Hedef: {target_count} ürün.")
+    print(f"[Botasaurus] Otonom kazıma başlatıldı. Hedef: {target_count} ürün.")
     
     while len(scraped_products) < target_count:
         url = f"{base_url}{page}"
@@ -45,12 +44,12 @@ def scrape_etsy_headphones(driver: Driver, data):
                 link_elem = item.select('a.listing-link')
                 shop_elem = item.select('.v2-listing-card__shop-name')
 
-                title = title_elem.text.strip() if title_elem else None
-                price = price_elem.text.strip() if price_elem else None
-                rating = rating_elem.text.strip() if rating_elem else None
-                reviews = reviews_elem.text.strip() if reviews_elem else None
-                link = link_elem.attributes.get('href') if link_elem else None
-                shop = shop_elem.text.strip() if shop_elem else None
+                title = title_elem.text.strip() if title_elem else ""
+                price = price_elem.text.strip() if price_elem else ""
+                rating = rating_elem.text.strip() if rating_elem else ""
+                reviews = reviews_elem.text.strip() if reviews_elem else ""
+                link = link_elem.attributes.get('href') if link_elem else ""
+                shop = shop_elem.text.strip() if shop_elem else ""
 
                 if title and link:
                     scraped_products.append({
@@ -71,86 +70,74 @@ def scrape_etsy_headphones(driver: Driver, data):
 
 
 # ==========================================
-# 2. VERİ TEMİZLEME (SAF HALE GETİRME)
+# 2. YAPAY ZEKA DESTEKLİ TEMİZLEME MOTORU (API GEREKTİRMEZ)
 # ==========================================
-def clean_and_parse_data(raw_data):
-    cleaned_data = []
+def clean_data_with_ai(raw_batch):
+    url = "https://text.pollinations.ai/"
     
-    for item in raw_data:
-        price_clean = None
-        if item.get("raw_price"):
-            price_match = re.search(r'[\d\.,]+', item["raw_price"].replace(',', ''))
-            if price_match:
-                price_clean = float(price_match.group())
-
-        reviews_clean = 0
-        if item.get("raw_reviews"):
-            reviews_match = re.search(r'\d+', item["raw_reviews"].replace(',', ''))
-            if reviews_match:
-                reviews_clean = int(reviews_match.group())
-
-        rating_clean = None
-        if item.get("raw_rating"):
-            rating_match = re.search(r'[\d\.]+', item["raw_rating"])
-            if rating_match:
-                rating_clean = float(rating_match.group())
-
-        title_clean = re.sub(r'\s+', ' ', item.get("raw_title", "")).strip()
-
-        cleaned_data.append({
-            "Ürün Başlığı": title_clean,
-            "Fiyat (USD)": price_clean,
-            "Puan": rating_clean,
-            "Yorum Sayısı": reviews_clean,
-            "Mağaza Adı": item.get("shop_name"),
-            "Ürün Linki": item.get("product_url")
-        })
+    prompt = f"""
+    Sen uzman bir veri analisti yapay zekasın. Sana verilen ham web kazıma verilerini analiz et ve saf (clean) JSON formatında döndür.
+    
+    Kurallar:
+    - Fiyatı sadece sayısal (float) yap.
+    - Puanı sayısal (float) yap.
+    - Yorum sayısını tam sayı (int) yap.
+    - Ürün başlığını gereksiz boşluklardan temizle.
+    - SADECE geçerli bir JSON listesi döndür, başka hiçbir açıklama yazma.
+    
+    Ham Veri:
+    {json.dumps(raw_batch, ensure_ascii=False)}
+    """
+    
+    try:
+        response = requests.post(
+            url,
+            json={
+                "messages": [
+                    {"role": "system", "content": "Sen sadece saf JSON yanıtı veren bir veri düzenleme yapay zekasısın."},
+                    {"role": "user", "content": prompt}
+                ],
+                "model": "qwen-coder",
+                "jsonMode": True
+            },
+            timeout=60
+        )
         
-    return cleaned_data
+        if response.status_code == 200:
+            cleaned_json = json.loads(response.text)
+            return cleaned_json
+        else:
+            return raw_batch
+    except Exception:
+        return raw_batch
 
 
 # ==========================================
-# 3. AÇIK KAYNAK YAPAY ZEKA (OPENROUTER / DEEPSEEK)
+# 3. ANA ÇALIŞTIRICI
 # ==========================================
 def main():
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY çevre değişkeni bulunamadı.")
-        
-    # OpenRouter üzerinden filtresiz açık kaynak OpenAI uyumlu API çağrısı
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=api_key,
-    )
-    
     output_dir = "data_outputs"
     os.makedirs(output_dir, exist_ok=True)
     output_filepath = os.path.join(output_dir, "etsy_1000_headphones_clean.xlsx")
 
-    print("[AI Model] Açık kaynaklı DeepSeek/Qwen modeli başlatılıyor...")
-    
-    # Model seçimi: Filtresiz ve yüksek kodlama yeteneğine sahip DeepSeek veya Qwen
-    response = client.chat.completions.create(
-        model="deepseek/deepseek-r1:free",
-        messages=[
-            {"role": "system", "content": "Sen Botasaurus kazıma aracını yöneten otonom bir AI ajansın."},
-            {"role": "user", "content": "Etsy üzerinden 1000 kulaklık verisini kazımak için aracı çalıştır."}
-        ]
-    )
-
-    print("[AI Model] İstem doğrulandı, Botasaurus entegrasyonu başlatılıyor...")
-    
-    # 1. Kazıma İşlemi
+    print("[1/3] Botasaurus ile 1000 kulaklık kazınıyor...")
     raw_results = scrape_etsy_headphones(data={"target_count": 1000})
     
-    # 2. Saf Veriye Dönüştürme
-    print("[AI Model] Veriler işleniyor ve saf hale getiriliyor...")
-    clean_results = clean_and_parse_data(raw_results)
+    print("[2/3] Yapay Zeka ham verileri analiz edip temizliyor...")
+    all_cleaned_data = []
     
-    # 3. Excel (.xlsx) Kaydı
-    df = pd.DataFrame(clean_results)
+    batch_size = 50
+    for i in range(0, len(raw_results), batch_size):
+        batch = raw_results[i:i + batch_size]
+        print(f"[AI Analiz] {i+1} - {i+len(batch)} arası ürünler işleniyor...")
+        cleaned_batch = clean_data_with_ai(batch)
+        all_cleaned_data.extend(cleaned_batch)
+    
+    print(f"[3/3] Temizlenen veriler Excel dosyasına yazılıyor: {output_filepath}")
+    df = pd.DataFrame(all_cleaned_data)
     df.to_excel(output_filepath, index=False, engine='openpyxl')
-    print(f"[AI Model] İşlem başarıyla tamamlandı. Dosya kaydedildi: {output_filepath}")
+    
+    print(f"✅ [BAŞARILI] İşlem tamamlandı ve dosya kaydedildi!")
 
 if __name__ == "__main__":
     main()

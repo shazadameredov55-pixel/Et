@@ -3,7 +3,7 @@ name: Etsy AI Headphones Scraper Worker
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *' # Her gün gece 00:00'da otomatik çalışır
+    - cron: '0 0 * * *'
 
 jobs:
   scrape-etsy:
@@ -21,9 +21,9 @@ jobs:
       - name: Tarayıcı ve Bağımlılıkları Yükle
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget curl unzip libgconf-2-4
+          sudo apt-get install -y wget curl unzip libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2t64
           python -m pip install --upgrade pip
-          pip install anthropic botasaurus beautifulsoup4
+          pip install anthropic botasaurus pandas openpyxl
 
       - name: AI Scraper Scriptini Çalıştır
         env:
@@ -31,11 +31,11 @@ jobs:
         run: |
           python main.py
 
-      - name: Çıktıyı GitHub Depoyla Eşitle
+      - name: Excel Dosyasını ve Klasörü Depoya Commit Et
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add etsy_1000_headphones_clean.json || true
-          git commit -m "Automated Etsy 1000 Headphones JSON update" || true
+          git add data_outputs/
+          git commit -m "Automated Etsy 1000 Headphones Excel Export Update" || true
           git push || true
           

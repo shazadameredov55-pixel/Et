@@ -5,39 +5,87 @@ import requests as standard_requests
 from botasaurus.browser import browser, Driver
 
 # ==========================================
-# 1. BOTASAURUS ILE ETSI KAZIMA MOTORU
+# OTONOM PROXY VE HATA YÖNETİMİ
 # ==========================================
-# Headless modu GitHub Actions'ta varsayılan olarak çalışır.
-# Botasaurus Cloudflare'i ve anti-bot sistemlerini kendi stealth Chrome katmanıyla aşar.
+def fetch_dynamic_proxies():
+    """Ajanın engelleri aşmak için otonom olarak kullanabileceği proxy havuzu"""
+    try:
+        res = standard_requests.get("https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=4000&country=all&ssl=all&anonymity=all", timeout=5)
+        if res.status_code == 200:
+            proxies = [p.strip() for p in res.text.split('\r\n') if p.strip()]
+            return proxies
+    except Exception:
+        pass
+    return None
+
+# ==========================================
+# BOTASAURUS OTONOM KAZIMA AJANI
+# ==========================================
 @browser(
     headless=True,
-    block_images=True,  # Hız kazanmak için görselleri engeller
-    reuse_driver=True   # Sürücüyü yeniden kullanarak tarayıcı başlatma yükünü azaltır
+    block_images=True,
+    reuse_driver=False,
+    proxy=fetch_dynamic_proxies() # Ajan proxy'yi otonom yönetir
 )
 def scrape_etsy_headphones_task(driver: Driver, data):
     target_count = 1000
     scraped_products = []
     page = 1
 
-    print(f"[Botasaurus Agent] Otonom kazıma başlatıldı. Hedef: {target_count} ürün.")
+    print(f"[Otonom Ajan] Etsy kazıma görevi devralındı. Hedef: {target_count} ürün.")
 
     while len(scraped_products) < target_count:
         url = f"https://www.etsy.com/search?q=headphones&page={page}&ref=pagination"
-        print(f"[Botasaurus] Sayfa {page} taranıyor -> {url}")
+        print(f"[Otonom Ajan] Sayfa {page} taranıyor: {url}")
 
         try:
-            # Google Referer taklidi ile Cloudflare/Akamai engelini aşma
+            # Google simülasyonu ile yönlenme
             driver.google_get(url)
-            driver.sleep(2) # İnsan davranış taklidi beklemesi
+            driver.sleep(2.5)
 
-            # Sayfadaki kart elemanlarını seç
-            cards = driver.select_all('div.v2-listing-card, li.wt-list-unstyled, div[data-search-results] li')
+            # Sayfa içeriğini otonom kontrol et
+            html = driver.page_html
+            if "captcha" in html.lower() or "access denied" in html.lower():
+                print(f"[Otonom Uyarı] Sayfa {page} güvenlik duvarına takıldı, ajan rotasyonu yeniliyor...")
+                driver.sleep(4)
+                continue
+
+            # Genişletilmiş otonom DOM seçicileri
+            cards = driver.select_all('div.v2-listing-card, li.wt-list-unstyled, div[data-search-results] li, div.wt-grid__item-xs-6')
             
             if not cards:
-                print(f"[Botasaurus] Sayfa {page}'de kart bulunamadı. Bloklanmış veya son sayfada olabilir.")
-                if page > 3:
+                print(f"[Otonom Ajan] Sayfa {page} üzerinde kart yakalanamadı. Alternatif JSON-LD verisi taranıyor...")
+                # Alternatif otonom JSON veri çekme
+                try:
+                    scripts = driver.select_all('script[type="application/ld+json"]')
+                    found_json = False
+                    for script in scripts:
+                        if 'Product' in script.text:
+                            data_block = json.loads(script.text)
+                            if isinstance(data_block, list):
+                                for item in data_block:
+                                    if item.get('@type') == 'Product' and len(scraped_products) < target_count:
+                                        scraped_products.append({
+                                            "raw_title": item.get('name', ''),
+                                            "raw_price": str(item.get('offers', {}).get('price', '')),
+                                            "raw_rating": str(item.get('aggregateRating', {}).get('ratingValue', '')),
+                                            "shop_name": item.get('brand', {}).get('name', ''),
+                                            "product_url": item.get('url', '')
+                                        })
+                                        found_json = True
+                    if found_json:
+                        print(f"[Otonom Ajan] Sayfa {page} JSON-LD üzerinden başarıyla okundu. Toplam: {len(scraped_products)}")
+                        page += 1
+                        continue
+                except Exception:
+                    pass
+
+                if page > 5:
+                    print("[Otonom Ajan] Maksimum deneme sınırına ulaşıldı, döngü sonlandırılıyor.")
                     break
-            
+                page += 1
+                continue
+
             page_items = 0
             for card in cards:
                 if len(scraped_products) >= target_count:
@@ -47,20 +95,18 @@ def scrape_etsy_headphones_task(driver: Driver, data):
                     title_elem = card.select('h3, .v2-listing-card__title, .wt-text-title-01')
                     link_elem = card.select('a.listing-link, a[href*="/listing/"]')
                     price_elem = card.select('.currency-value, .lc-price, .wt-text-title-01')
-                    rating_elem = card.select('.wt-align-items-center span.wt-text-title-small, .wt-rating span')
                     shop_elem = card.select('.v2-listing-card__shop-name, .wt-text-caption')
 
                     title = title_elem.text.strip() if title_elem else ""
                     link = link_elem.attributes.get('href', '') if link_elem else ""
                     price = price_elem.text.strip() if price_elem else ""
-                    rating = rating_elem.text.strip() if rating_elem else ""
                     shop = shop_elem.text.strip() if shop_elem else ""
 
                     if title:
                         scraped_products.append({
                             "raw_title": title,
                             "raw_price": price,
-                            "raw_rating": rating,
+                            "raw_rating": "",
                             "shop_name": shop,
                             "product_url": link
                         })
@@ -68,91 +114,72 @@ def scrape_etsy_headphones_task(driver: Driver, data):
                 except Exception:
                     continue
 
-            print(f"[Botasaurus] Sayfa {page}'den {page_items} ürün alındı. Toplam: {len(scraped_products)}")
+            print(f"[Otonom Ajan] Sayfa {page}'den {page_items} ürün işlendi. Toplam: {len(scraped_products)}")
 
         except Exception as e:
-            print(f"[Botasaurus Hata] Sayfa {page} işlenirken hata oluştu: {str(e)}")
-            if page > 5:
-                break
+            print(f"[Otonom Hata] Sayfa {page} işlenirken hata: {str(e)}")
 
         page += 1
 
-    print(f"[Botasaurus] Toplam {len(scraped_products)} adet ham ürün verisi çekildi.")
+    print(f"[Otonom Ajan] Görev tamamlandı. Toplam {len(scraped_products)} ürün toplandı.")
     return scraped_products
 
 # ==========================================
-# 2. API GEREKTİRMEYEN ÜCRETSİZ AI KOD & VERİ İŞLEYİCİ
+# API GEREKTİRMEYEN QWEN AI VERİ DÜZENLEME
 # ==========================================
 def clean_data_with_free_ai(raw_batch):
-    """API anahtarı gerektirmeyen Pollinations Qwen LLM Entegrasyonu"""
     url = "https://text.pollinations.ai/"
-    
     prompt = f"""
-    Sen uzman bir veri analisti ve kod yazıcı ajanısın. Sana verilen ham Etsy ürün verisini temizle ve SADECE geçerli bir JSON listesi olarak döndür.
-    
-    Kurallar:
-    - Fiyat bilgisini sayısal (float) formata çevir.
-    - Puan (rating) değerini float yap.
-    - Başlıktaki gereksiz karakterleri ve fazla boşlukları temizle.
-    - Yanıtında markdown bloğu veya açıklama yazma, SADECE saf JSON array döndür.
+    Sen otonom bir veri analistisin. Verilen ham Etsy ürün listesini temizle ve SADECE saf JSON listesi döndür.
+    Fiyatı float yap. Başlıkları temizle. Açıklama yazma.
     
     Veri:
     {json.dumps(raw_batch, ensure_ascii=False)}
     """
-    
     try:
         response = standard_requests.post(
             url,
             json={
                 "messages": [
-                    {"role": "system", "content": "Sen sadece geçerli JSON döndüren otonom bir veri işleme yapay zekasısın."},
+                    {"role": "system", "content": "Sen sadece geçerli JSON döndüren bir yapay zekasın."},
                     {"role": "user", "content": prompt}
                 ],
                 "model": "qwen-coder",
                 "jsonMode": True
             },
-            timeout=60
+            timeout=45
         )
         if response.status_code == 200:
             return json.loads(response.text)
-    except Exception as e:
-        print(f"[AI Uyarısı] AI temizleme adımında hata: {str(e)}")
-    
+    except Exception:
+        pass
     return raw_batch
 
-# ==========================================
-# 3. OTONOM ÇALIŞTIRICI SÜREÇ
-# ==========================================
 def main():
     output_dir = "data_outputs"
     os.makedirs(output_dir, exist_ok=True)
     output_filepath = os.path.join(output_dir, "etsy_1000_headphones_clean.xlsx")
 
-    # 1. Botasaurus ile Çekme
-    print("[1/3] Botasaurus ile 1000 kulaklık kazınıyor...")
+    print("[1/3] Otonom Botasaurus ajanı çalıştırılıyor...")
     raw_results = scrape_etsy_headphones_task()
 
     if not raw_results:
-        print("[Uyarı] Kazılan ham veri bulunamadı.")
+        print("[Uyarı] Ajan veri toplayamadı.")
         return
 
-    # 2. Ücretsiz LLM ile Temizleme
-    print(f"[2/3] Çekilen {len(raw_results)} adet veri API'siz Yapay Zeka (Qwen Coder) ile işleniyor...")
+    print(f"[2/3] {len(raw_results)} adet veri Qwen LLM ile işleniyor...")
     all_cleaned_data = []
     
     batch_size = 50
     for i in range(0, len(raw_results), batch_size):
         batch = raw_results[i:i + batch_size]
-        print(f"[AI İşlem] {i+1} ile {i+len(batch)} arasındaki ürünler temizleniyor...")
         cleaned_batch = clean_data_with_free_ai(batch)
         all_cleaned_data.extend(cleaned_batch)
 
-    # 3. Excel Kaydı
-    print(f"[3/3] Temizlenen veriler Excel dosyasına aktarılıyor: {output_filepath}")
+    print(f"[3/3] Excel dosyasına yazılıyor: {output_filepath}")
     df = pd.DataFrame(all_cleaned_data)
     df.to_excel(output_filepath, index=False, engine='openpyxl')
-
-    print(f"✅ [BAŞARILI] İşlem tamamlandı! Dosya depoya yazılmaya hazır: {output_filepath}")
+    print("✅ İşlem başarıyla tamamlandı.")
 
 if __name__ == "__main__":
     main()

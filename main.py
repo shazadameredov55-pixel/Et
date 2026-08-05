@@ -6,13 +6,12 @@ import pandas as pd
 from botasaurus.browser import browser, Driver
 
 # ==========================================
-# 1. BOTASAURUS KAZIMA MOTORU (Anti-Bot Güçlendirilmiş)
+# 1. BOTASAURUS KAZIMA MOTORU
 # ==========================================
 @browser(
     headless=True,
     block_images=True,
     reuse_driver=True,
-    wait=4,
     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 )
 def scrape_etsy_headphones(driver: Driver, data):
@@ -29,9 +28,9 @@ def scrape_etsy_headphones(driver: Driver, data):
         print(f"[Botasaurus] Sayfa taranıyor: {page} -> {url}")
         
         driver.google_get(url)
-        time.sleep(3)
+        time.sleep(4)  # Sayfanın yüklenmesi için 4 saniye bekleme
         
-        # Etsy listeleme kartları için alternatif selector yapıları
+        # Etsy grid listeleme kartları için farklı selector kombinasyonları
         items = driver.select_all('div.v2-listing-card')
         if not items:
             items = driver.select_all('li.wt-list-unstyled')

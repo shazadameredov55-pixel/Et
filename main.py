@@ -3,102 +3,89 @@ import json
 import time
 import requests
 import pandas as pd
-from bs4 import BeautifulSoup
-from botasaurus.browser import browser, Driver
 
 # ==========================================
-# 1. BOTASAURUS KAZIMA MOTORU (Anti-Bot & Scroll Güçlendirilmiş)
+# 1. ETSY ARAMA MOTORU (Direct JSON Endpoint Scraper)
 # ==========================================
-@browser(
-    headless=True,
-    block_images=False,  # Resimleri yüklemek insan davranışını daha iyi taklit eder
-    reuse_driver=True,
-    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-)
-def scrape_etsy_headphones(driver: Driver, data):
-    target_count = data.get("target_count", 1000)
-    base_url = "https://www.etsy.com/search?q=headphones&page="
-    
+def scrape_etsy_headphones_api(target_count=1000):
     scraped_products = []
     page = 1
     
-    print(f"[Botasaurus] Otonom kazıma başlatıldı. Hedef: {target_count} ürün.")
+    # Gerçek bir tarayıcı başlığı taklidi
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://www.etsy.com/search?q=headphones"
+    }
+    
+    print(f"[Etsy Scraper] API tabanlı kazıma başlatıldı. Hedef: {target_count} ürün.")
     
     while len(scraped_products) < target_count:
-        url = f"{base_url}{page}"
-        print(f"[Botasaurus] Sayfa taranıyor: {page} -> {url}")
+        # Etsy'nin iç JSON Arama Endpoint'i
+        url = f"https://www.etsy.com/api/v3/ajax/bespoke/member/nebula/search?query=headphones&page={page}&ref=pagination"
         
-        driver.get(url)
-        time.sleep(5)  # Sayfanın yüklenmesi için bekle
+        print(f"[Etsy Scraper] Sayfa {page} çekiliyor -> {url}")
         
-        # Sayfayı aşağı kaydırarak lazy-load ürünlerin yüklenmesini sağla
-        driver.run_js("window.scrollTo(0, document.body.scrollHeight/2);")
-        time.sleep(2)
-        driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)
-        
-        # HTML kaynağını çekip BeautifulSoup ile parçala
-        soup = BeautifulSoup(driver.page_html, 'html.parser')
-        
-        # Etsy'deki tüm olası ürün kartı sınıfları
-        cards = soup.select('div.v2-listing-card, li.wt-list-unstyled, div[data-search-results] a, ol.responsive-listing-grid > li')
-        
-        if not cards:
-            print(f"[Botasaurus] Sayfa {page}'de kart bulunamadı. Bloklanmış veya son sayfada olabilir.")
-            if page > 2:
-                break
-            page += 1
-            continue
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
             
-        print(f"[Botasaurus] Sayfa {page}'de {len(cards)} adet ham ürün kartı tespit edildi.")
-        
-        for card in cards:
-            if len(scraped_products) >= target_count:
+            # Eğer API direkt yanıt vermezse HTML arama yedek isteğine düş
+            if response.status_code != 200:
+                print(f"[Uyarı] HTTP {response.status_code} alındı. HTML Arama isteği deneniyor...")
+                alt_url = f"https://www.etsy.com/search?q=headphones&page={page}"
+                response = requests.get(alt_url, headers=headers, timeout=15)
+                
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    # Etsy JSON yapısından ürün listesini ayıkla
+                    listings = data.get('results', {}).get('listings', [])
+                    
+                    if not listings:
+                        print(f"[Etsy Scraper] Sayfa {page}'de ürün bulunamadı. Son sayfaya ulaşılmış olabilir.")
+                        if page > 2:
+                            break
+                    else:
+                        print(f"[Etsy Scraper] Sayfa {page}'den {len(listings)} ürün başarıyla çekildi.")
+                        
+                    for item in listings:
+                        if len(scraped_products) >= target_count:
+                            break
+                        
+                        title = item.get('title', '')
+                        price = item.get('price', {}).get('amount', '') or item.get('price_string', '')
+                        rating = item.get('rating', {}).get('rating', '')
+                        reviews = item.get('rating', {}).get('count', '')
+                        url = item.get('url', '')
+                        shop = item.get('shop_name', '')
+                        
+                        if title:
+                            scraped_products.append({
+                                "raw_title": title,
+                                "raw_price": price,
+                                "raw_rating": rating,
+                                "raw_reviews": reviews,
+                                "shop_name": shop,
+                                "product_url": url
+                            })
+                except json.JSONDecodeError:
+                    print(f"[Hata] Sayfa {page} JSON olarak ayrıştırılamadı (Cloudflare JS Engeli).")
+                    if page > 3:
+                        break
+            else:
+                print(f"[Hata] Etsy erişim engeli döndürdü: Status Code {response.status_code}")
                 break
                 
-            try:
-                # Başlık arama
-                title_elem = card.select_one('h3, .v2-listing-card__title, .wt-text-title-01')
-                title = title_elem.get_text(strip=True) if title_elem else ""
-
-                # Link arama
-                link_elem = card.select_one('a.listing-link, a[href*="/listing/"]')
-                link = ""
-                if link_elem and link_elem.has_attr('href'):
-                    link = link_elem['href']
-                elif card.name == 'a' and card.has_attr('href'):
-                    link = card['href']
-
-                # Fiyat arama
-                price_elem = card.select_one('.currency-value, .lc-price, .wt-text-title-01, p.wt-text-title-01')
-                price = price_elem.get_text(strip=True) if price_elem else ""
-
-                # Puan ve Yorum arama
-                rating_elem = card.select_one('.wt-align-items-center span.wt-text-title-small, .wt-rating span')
-                reviews_elem = card.select_one('.wt-text-body-01, .wt-text-caption')
-                
-                rating = rating_elem.get_text(strip=True) if rating_elem else ""
-                reviews = reviews_elem.get_text(strip=True) if reviews_elem else ""
-
-                # Mağaza adı
-                shop_elem = card.select_one('.v2-listing-card__shop-name, .wt-text-caption')
-                shop = shop_elem.get_text(strip=True) if shop_elem else ""
-
-                if title and link:
-                    scraped_products.append({
-                        "raw_title": title,
-                        "raw_price": price,
-                        "raw_rating": rating,
-                        "raw_reviews": reviews,
-                        "shop_name": shop,
-                        "product_url": link
-                    })
-            except Exception:
-                continue
-                
+        except Exception as e:
+            print(f"[Sistem Hatası] İstek sırasında bir sorun oluştu: {str(e)}")
+            break
+            
         page += 1
+        time.sleep(2)  # Sunucuyu yormamak için kısa bekleme
         
-    print(f"[Botasaurus] Toplam {len(scraped_products)} adet ham ürün verisi çekildi.")
+    print(f"[Etsy Scraper] Toplam {len(scraped_products)} adet ham ürün verisi çekildi.")
     return scraped_products
 
 
@@ -137,8 +124,7 @@ def clean_data_with_free_ai(raw_batch):
         )
         
         if response.status_code == 200:
-            cleaned_json = json.loads(response.text)
-            return cleaned_json
+            return json.loads(response.text)
         else:
             return raw_batch
     except Exception:
@@ -153,8 +139,8 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     output_filepath = os.path.join(output_dir, "etsy_1000_headphones_clean.xlsx")
 
-    print("[1/3] Botasaurus ile 1000 kulaklık kazınıyor...")
-    raw_results = scrape_etsy_headphones(data={"target_count": 1000})
+    print("[1/3] Etsy API üzerinden 1000 kulaklık verisi çekiliyor...")
+    raw_results = scrape_etsy_headphones_api(target_count=1000)
     
     if not raw_results:
         print("[Uyarı] Kazılan ham veri bulunamadı.")

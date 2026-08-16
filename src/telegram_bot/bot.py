@@ -17,7 +17,8 @@ import logging
 import time
 
 from src.memory.db import get_connection, init_db
-from src.memory.product_repository import ProductRepository
+from src.memory.product_repository import ProductRepository, ProductNotFoundError
+from src.providers.notification.telegram_provider import run_id_fingerprint
 from src.telegram_bot.api_client import TelegramApiClient
 from src.telegram_bot.auth import is_authorized
 from src.telegram_bot.github_dispatch import GitHubDispatcher
@@ -75,12 +76,31 @@ def _handle_update(repo: ProductRepository, dispatcher: GitHubDispatcher, client
         if len(parts) != 3:
             client.answer_callback_query(cq["id"], text="Malformed action.")
             return
-        action, product_id, run_id = parts
+        action, product_id, run_id_fp = parts
 
-        if action == "approve":
-            text = handlers.handle_approve_callback(repo, dispatcher, product_id, run_id, actor=f"tg:{user_id}")
-        elif action == "reject":
-            text = handlers.handle_reject_callback(repo, product_id, run_id, actor=f"tg:{user_id}")
+        if action in ("approve", "reject"):
+            # callback_data only carries a short fingerprint of run_id
+            # (see run_id_fingerprint() docstring — the raw value doesn't
+            # fit Telegram's 64-byte callback_data limit). Recompute the
+            # fingerprint from the record's actual stored run_id and
+            # compare, rather than trusting the button's payload directly.
+            try:
+                record = repo.get(product_id)
+            except ProductNotFoundError:
+                client.answer_callback_query(cq["id"])
+                client.send_message(str(chat_id), f"No product found with id {product_id}")
+                return
+            if run_id_fingerprint(record.run_id) != run_id_fp:
+                client.answer_callback_query(cq["id"])
+                client.send_message(
+                    str(chat_id),
+                    "This approval no longer applies (the product has moved on, or this is a stale/duplicate button press). No action taken.",
+                )
+                return
+            if action == "approve":
+                text = handlers.handle_approve_callback(repo, dispatcher, product_id, record.run_id, actor=f"tg:{user_id}")
+            else:
+                text = handlers.handle_reject_callback(repo, product_id, record.run_id, actor=f"tg:{user_id}")
         elif action == "details":
             text = handlers.handle_details(repo, product_id)
         else:

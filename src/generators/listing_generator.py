@@ -16,15 +16,29 @@ from src.generators.blueprints import ProductBlueprint
 
 
 def build_listing_text(product_spec: ProductSpec, blueprint: ProductBlueprint) -> str:
-    title = product_spec.title or blueprint.display_name
+    base_title = product_spec.title or blueprint.display_name
+    # Etsy titles perform far better front-loaded with the primary keyword
+    # phrase followed by descriptive modifiers (what search + browse both
+    # reward) than a bare product name — cap at Etsy's 140-character title
+    # limit, and fall back to the bare title if no suffix is defined for
+    # this niche yet.
+    if blueprint.seo_title_suffix:
+        title = f"{base_title} | {blueprint.seo_title_suffix}"[:140].rstrip(" |")
+    else:
+        title = base_title
     target = (product_spec.target_customer or blueprint.default_target_customer).replace("_", " ")
     features = product_spec.core_features or blueprint.default_features
     optional_features = product_spec.optional_features
-    keywords = product_spec.keywords or _derive_keywords(product_spec, blueprint)
+    # Prefer real per-niche SEO tags (blueprint.seo_keywords) over the bare
+    # niche/title-word fallback — Etsy allows up to 13 tags and search
+    # visibility depends heavily on actually using all of them with real
+    # buyer search phrases, not just the product's own name split into
+    # words.
+    keywords = product_spec.keywords or blueprint.seo_keywords or _derive_keywords(product_spec, blueprint)
     price = product_spec.price_suggestion
 
     description_lines = [
-        f"{title} is a {blueprint.display_name.lower()} built for {target}.",
+        f"{base_title} is a {blueprint.display_name.lower()} built for {target}.",
     ]
     if product_spec.problem:
         description_lines.append(f"It's designed to help with: {product_spec.problem}")

@@ -16,6 +16,7 @@ logs/artifacts.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 
@@ -26,6 +27,26 @@ from src.core.interfaces import NotificationProvider, NotificationResult
 logger = logging.getLogger(__name__)
 
 _API_BASE = "https://api.telegram.org/bot{token}/{method}"
+
+
+def run_id_fingerprint(run_id: str) -> str:
+    """Short, deterministic stand-in for a run_id inside Telegram
+    callback_data.
+
+    Telegram caps inline-keyboard callback_data at 64 bytes total. A raw
+    "approve:<uuid product_id>:<run_id>" string can exceed that on its
+    own once a real GitHub Actions run_id (which can run 15-20+ chars) is
+    appended to a 36-char UUID, and the API then rejects the whole
+    sendMessage call with BUTTON_DATA_INVALID — silently preventing every
+    approval message from ever being sent. A 10-hex-char SHA-256 prefix
+    is what actually goes in the button instead; src/telegram_bot/bot.py
+    verifies it by recomputing this same fingerprint from the record's
+    stored run_id before honoring an approve/reject callback, so a stale
+    button (referencing a run_id that no longer matches the current
+    record) is still rejected exactly as it would be by comparing the
+    raw values.
+    """
+    return hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:10]
 
 
 class TelegramNotificationProvider(NotificationProvider):
@@ -55,23 +76,6 @@ class TelegramNotificationProvider(NotificationProvider):
             if not data.get("ok"):
                 return NotificationResult(success=False, error=f"Telegram API error: {data.get('description')}")
             return NotificationResult(success=True)
-        except requests.exceptions.HTTPError as e:
-            # HTTPError means Telegram responded with a non-2xx status —
-            # its JSON body usually explains exactly why (e.g. "chat not
-            # found", "Unauthorized", "bot was blocked by the user").
-            # That description contains no secret, so it's safe to
-            # surface — only the request URL (which embeds the token) is
-            # withheld.
-            status_code = e.response.status_code if e.response is not None else "?"
-            description = "unknown"
-            if e.response is not None:
-                try:
-                    body = e.response.json()
-                    description = body.get("description") or e.response.text[:200]
-                except ValueError:
-                    description = e.response.text[:200]
-            logger.warning("Telegram sendMessage failed: HTTP %s — %s", status_code, description)
-            return NotificationResult(success=False, error=f"Telegram HTTP {status_code}: {description}")
         except requests.exceptions.RequestException as e:
             # Never interpolate the URL (contains the token) into the
             # error message — only a generic description.
@@ -79,15 +83,18 @@ class TelegramNotificationProvider(NotificationProvider):
             return NotificationResult(success=False, error=f"Telegram request failed: {type(e).__name__}")
 
     def send_approval_request(self, product_id: str, summary_text: str, run_id: str = "") -> NotificationResult:
-        """Approval keyboard callback_data encodes both product_id and
-        run_id (format 'approve:<product_id>:<run_id>') so the bot's
-        callback handler can validate against StateMachine.approve's
-        expected_run_id check before ever touching the database."""
+        """Approval keyboard callback_data encodes product_id plus a short
+        fingerprint of run_id (format 'approve:<product_id>:<run_id_fingerprint>')
+        so the bot's callback handler can validate against
+        StateMachine.approve's expected_run_id check before ever touching
+        the database. The full run_id is deliberately NOT embedded raw —
+        see run_id_fingerprint()'s docstring for why."""
+        fp = run_id_fingerprint(run_id)
         keyboard = {
             "inline_keyboard": [[
-                {"text": "✅ APPROVE", "callback_data": f"approve:{product_id}:{run_id}"},
-                {"text": "❌ REJECT", "callback_data": f"reject:{product_id}:{run_id}"},
-                {"text": "🔍 DETAILS", "callback_data": f"details:{product_id}:{run_id}"},
+                {"text": "✅ APPROVE", "callback_data": f"approve:{product_id}:{fp}"},
+                {"text": "❌ REJECT", "callback_data": f"reject:{product_id}:{fp}"},
+                {"text": "🔍 DETAILS", "callback_data": f"details:{product_id}:{fp}"},
             ]]
         }
         return self.send_message(summary_text, reply_markup=keyboard)
@@ -140,4 +147,3 @@ def format_ready_message(
         f"<b>Files:</b> {files_str}\n\n"
         "<b>Status:</b> READY_FOR_MANUAL_UPLOAD"
     )
-    

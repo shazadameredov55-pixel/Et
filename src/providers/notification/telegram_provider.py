@@ -55,6 +55,23 @@ class TelegramNotificationProvider(NotificationProvider):
             if not data.get("ok"):
                 return NotificationResult(success=False, error=f"Telegram API error: {data.get('description')}")
             return NotificationResult(success=True)
+        except requests.exceptions.HTTPError as e:
+            # HTTPError means Telegram responded with a non-2xx status —
+            # its JSON body usually explains exactly why (e.g. "chat not
+            # found", "Unauthorized", "bot was blocked by the user").
+            # That description contains no secret, so it's safe to
+            # surface — only the request URL (which embeds the token) is
+            # withheld.
+            status_code = e.response.status_code if e.response is not None else "?"
+            description = "unknown"
+            if e.response is not None:
+                try:
+                    body = e.response.json()
+                    description = body.get("description") or e.response.text[:200]
+                except ValueError:
+                    description = e.response.text[:200]
+            logger.warning("Telegram sendMessage failed: HTTP %s — %s", status_code, description)
+            return NotificationResult(success=False, error=f"Telegram HTTP {status_code}: {description}")
         except requests.exceptions.RequestException as e:
             # Never interpolate the URL (contains the token) into the
             # error message — only a generic description.
@@ -123,3 +140,4 @@ def format_ready_message(
         f"<b>Files:</b> {files_str}\n\n"
         "<b>Status:</b> READY_FOR_MANUAL_UPLOAD"
     )
+    

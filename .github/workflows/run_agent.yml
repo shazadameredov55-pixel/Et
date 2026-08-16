@@ -44,10 +44,13 @@ on:
         default: ""
 
 # Never run two agent jobs at once — both modes touch the same
-# data/products.db artifact, and concurrent runs could race on it.
+# data/products.db file, and concurrent runs could race on committing it.
 concurrency:
   group: ai-digital-product-agent
   cancel-in-progress: false
+
+permissions:
+  contents: write  # needed to commit data/products.db back to the repo
 
 jobs:
   run-agent:
@@ -65,15 +68,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore product-memory database
-        # No matching artifact on the very first run ever — that's fine,
-        # the orchestrator creates a fresh DB (src/memory/db.py). Don't
-        # fail the job just because there's nothing to restore yet.
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: product-memory-db
-          path: data
+      # Note: data/products.db is persisted by committing it back into the
+      # repo (see "Persist product-memory database" step below) rather than
+      # via actions/upload-artifact + download-artifact. Artifacts in v4 are
+      # scoped to a single workflow run, so a later, separate run (e.g. a
+      # research run followed by a produce run) cannot download an
+      # artifact uploaded by an earlier run — the DB would silently reset
+      # to empty every time. Committing to the repo sidesteps that
+      # entirely: checkout above always gets the latest committed DB.
 
       - name: Run agent (research)
         if: ${{ github.event.inputs.mode == 'research' }}
@@ -107,15 +109,22 @@ jobs:
             --quality-threshold "${{ github.event.inputs.quality_threshold }}"
 
       - name: Persist product-memory database
-        # Always save, even if the job above failed partway, so state
+        # Always commit, even if the job above failed partway, so state
         # (e.g. a product stuck mid-pipeline) isn't lost between runs.
+        # Commits straight to the branch this workflow ran on — safe here
+        # because the concurrency group above guarantees only one agent
+        # run (and therefore one commit) happens at a time.
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: product-memory-db
-          path: data/products.db
-          retention-days: 90
-          overwrite: true
+        run: |
+          git config user.name "ai-digital-product-agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f data/products.db
+          if git diff --cached --quiet; then
+            echo "No change to data/products.db, nothing to commit."
+          else
+            git commit -m "chore: update product-memory database [skip ci]"
+            git push
+          fi
 
       - name: Upload generated product files
         # Only produce mode creates anything here; upload is a no-op-safe

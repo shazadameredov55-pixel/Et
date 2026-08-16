@@ -44,6 +44,8 @@ class ProductBlueprint:
     core_formulas: list[str]           # human-readable description, actual formulas built in generator
     default_target_customer: str
     default_features: list[str]
+    seo_title_suffix: str = ""         # appended to product_spec.title for a keyword-rich Etsy title
+    seo_keywords: list[str] = field(default_factory=list)  # up to 13 tags, each ≤20 chars (Etsy's limits)
 
 
 # --------------------------------------------------------------------------
@@ -60,6 +62,13 @@ def _monthly_budget_tracker() -> ProductBlueprint:
             "category breakdown with percentages",
             "remaining balance calculation",
             "dropdown category selection",
+        ],
+        seo_title_suffix="Monthly Budget Planner Excel Spreadsheet Digital Download for Personal Finance",
+        seo_keywords=[
+            "budget tracker", "monthly budget", "budget planner", "budget spreadsheet",
+            "finance tracker", "money tracker", "excel budget", "budget template",
+            "expense tracker", "personal finance", "saving tracker", "financial planner",
+            "digital download",
         ],
         core_formulas=[
             "Remaining = Income - Expenses",
@@ -129,6 +138,13 @@ def _freelancer_finance_tracker() -> ProductBlueprint:
             "business expense log with deductible flag",
             "invoice status tracker",
             "quarterly + annual summary dashboard",
+        ],
+        seo_title_suffix="Excel Spreadsheet for Self Employed Income Expense and Quarterly Tax Tracking",
+        seo_keywords=[
+            "freelancer tracker", "finance spreadsheet", "income tracker", "expense tracker",
+            "tax spreadsheet", "invoice tracker", "self employed", "small business",
+            "excel template", "budget spreadsheet", "freelance finance", "quarterly taxes",
+            "digital download",
         ],
         core_formulas=[
             "Net Income = Gross Income - Business Expenses",
@@ -219,6 +235,13 @@ def _debt_payoff_tracker() -> ProductBlueprint:
             "snowball vs avalanche payoff order",
             "monthly payment log per debt",
             "payoff progress percentage",
+        ],
+        seo_title_suffix="Debt Snowball and Avalanche Excel Spreadsheet Digital Download Payoff Planner",
+        seo_keywords=[
+            "debt payoff tracker", "debt tracker", "debt snowball", "debt free journey",
+            "payoff planner", "finance spreadsheet", "budget tracker", "excel template",
+            "debt payoff plan", "money management", "debt avalanche", "financial planner",
+            "digital download",
         ],
         core_formulas=[
             "Remaining Balance = Starting Balance - SUM(Payments)",

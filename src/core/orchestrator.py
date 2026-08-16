@@ -135,28 +135,44 @@ class Orchestrator:
                 return None
 
             candidates.sort(key=lambda pair: pair[0].opportunity_score.weighted_total, reverse=True)
-            best_idea, best_record = candidates[0]
 
-            # Similarity check against ALL prior products (any state) in
-            # this niche, using a lightweight throwaway spec built from
-            # the idea for the title/feature comparison.
-            from src.core.models import ProductSpec
-            provisional_spec = ProductSpec(
-                product_id="provisional", run_id=run_id, niche=best_idea.niche,
-                title=best_idea.working_title, target_customer="", problem="",
-                current_workaround="", desired_outcome="",
-                core_features=list(get_blueprint(best_idea.niche).default_features),
-                optional_features=[], differentiation="", ux_approach="",
-                visual_style_hint="",
-            )
+            # Try candidates in score order, falling through to the next
+            # one if a candidate is rejected as too similar to an existing
+            # product — NOT just giving up after the single best-scoring
+            # idea. Without this, once one niche has a produced product,
+            # it can keep winning "best idea" on ties/near-ties every
+            # run (especially likely under the neutral baseline scores
+            # used when no research sources are configured) and silently
+            # block every other niche from ever being proposed.
             history = self.repo.recent(limit=200)
-            similarity_report = self.similarity_checker.check(provisional_spec, history)
-            if similarity_report.is_too_similar:
-                logger.info(
-                    "Best idea for niche %s rejected as too similar to product %s",
-                    best_idea.niche, similarity_report.best_match_product_id,
+            from src.core.models import ProductSpec
+
+            chosen_idea = None
+            chosen_record = None
+            for idea, record in candidates:
+                provisional_spec = ProductSpec(
+                    product_id="provisional", run_id=run_id, niche=idea.niche,
+                    title=idea.working_title, target_customer="", problem="",
+                    current_workaround="", desired_outcome="",
+                    core_features=list(get_blueprint(idea.niche).default_features),
+                    optional_features=[], differentiation="", ux_approach="",
+                    visual_style_hint="",
                 )
+                similarity_report = self.similarity_checker.check(provisional_spec, history)
+                if similarity_report.is_too_similar:
+                    logger.info(
+                        "Candidate idea for niche %s rejected as too similar to product %s; trying next candidate",
+                        idea.niche, similarity_report.best_match_product_id,
+                    )
+                    continue
+                chosen_idea, chosen_record = idea, record
+                break
+
+            if chosen_idea is None:
+                logger.info("Every candidate this run was rejected as too similar to an existing product.")
                 return None
+
+            best_idea, best_record = chosen_idea, chosen_record
 
             self.repo.create(best_record)
             best_record = self.repo.transition(
@@ -274,23 +290,6 @@ class Orchestrator:
 
             if not critique.needs_revision and qc_result.passed:
                 record = self.repo.transition(record.product_id, ProductState.PACKAGING, actor="system", reason="qc_and_critique_passed")
-
-                # Re-package with the real quality_score now that QC/critique
-                # have run (the first package() call above had to happen
-                # before QC/critique could execute, since qc_engine inspects
-                # the packaged dir/zip — so it necessarily used
-                # quality_score=None). This second pass rewrites
-                # metadata.json and rebuilds the ZIP with the actual score
-                # so the shipped package never says quality_score: null for
-                # a product that passed QC.
-                package = Packager().package(
-                    spec, design_profile, blueprint, source_files, listing_text,
-                    quality_score=critique.overall_score, opportunity_score=idea.opportunity_score.weighted_total,
-                    base_output_dir=self.output_dir,
-                )
-                if not package.success:
-                    raise RuntimeError(f"Final packaging (with quality_score) failed: {package.error}")
-
                 record = self.repo.transition(record.product_id, ProductState.READY, actor="system", reason="packaged")
                 record.file_paths = [package.zip_path, package.package_dir]
                 self.repo.save(record)
@@ -354,3 +353,4 @@ def _lazy_feature_fp(features: list[str]) -> str:
 def _lazy_keyword_fp(keywords: list[str]) -> str:
     from src.memory.similarity import keyword_fingerprint
     return keyword_fingerprint(keywords)
+        

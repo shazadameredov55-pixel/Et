@@ -1,0 +1,32 @@
+# Opportunity score = weighted sum of the metrics below, each expected on a
+# 0-10 scale from the scorer before weighting. Weights must sum to 1.0;
+# OpportunityScorer validates this at startup and refuses to run otherwise.
+
+weights:
+  demand: 0.25
+  competition: 0.15          # scored as "low competition = high value" (inverted upstream)
+  differentiation: 0.20
+  commercial_potential: 0.20
+  usability: 0.10
+  production_ease: 0.10
+
+# Minimum opportunity score (0-10 scale) required before a product idea is
+# even sent to Telegram for approval. Ideas below this are logged but not
+# surfaced, to avoid spamming the authorized user.
+#
+# Set to 5.5 deliberately: with NO research sources configured (i.e. only
+# NullResearchProvider active — see providers/research/registry.py), the
+# scorer falls back to neutral demand/competition estimates rather than
+# fabricating confident numbers, which lands the weighted total around
+# 5.8-6.0 for most blueprints. A higher threshold here would mean the
+# pipeline silently never notifies anything until real research sources
+# (RESEARCH_RSS_FEED_URL / RESEARCH_PAGE_URL) are configured. Raise this
+# once real research signals are flowing and you want higher confidence
+# before being notified.
+minimum_score_to_notify: 5.5
+
+# Quality gate for generated products (0-100 scale), independent of the
+# opportunity score above.
+quality:
+  minimum_pass_score: 80
+  max_revisions: 3

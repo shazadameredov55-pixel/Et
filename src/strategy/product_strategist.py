@@ -117,6 +117,13 @@ class ProductStrategist:
         return round(min(15.0, base + len(blueprint.sheets) * 1.25), 2)
 
     def _derive_keywords(self, blueprint: ProductBlueprint) -> list[str]:
+        # Real per-niche Etsy tags (up to 13, each ≤20 chars) take
+        # priority — these are actual buyer search phrases, not just the
+        # product's own name split into words. Only fall back to the
+        # generic word-split when a niche doesn't have curated tags yet.
+        if blueprint.seo_keywords:
+            return list(blueprint.seo_keywords[:13])
+
         words = blueprint.display_name.lower().split()
         keywords = [blueprint.display_name.lower(), "budget template", "excel spreadsheet"]
         keywords += [w for w in words if len(w) > 3]

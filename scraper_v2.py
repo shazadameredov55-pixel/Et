@@ -102,11 +102,18 @@ def fetch_page(base_url: str, page_num: int) -> str:
 def parse_listings(html: str, source_name: str) -> list[dict]:
     soup = BeautifulSoup(html, "lxml")
     listings = []
+    debug_samples = []  # TEŞHİS için
 
     for a in soup.find_all("a", href="#"):
         text = a.get_text(" ", strip=True)
         if not text or len(text) < 20:
             continue
+
+        # --- TEŞHİS (DEBUG) ---
+        if len(debug_samples) < 3:
+            debug_samples.append(text)
+            print(f"    [debug] örnek metin #{len(debug_samples)} (repr): {text!r}")
+        # --- TEŞHİS SONU ---
 
         match = LISTING_PATTERN.match(text)
         if not match:
@@ -352,3 +359,4 @@ def write_markdown_report(listings: list[dict], analysis: dict, run_date: str) -
 
 if __name__ == "__main__":
     main()
+           

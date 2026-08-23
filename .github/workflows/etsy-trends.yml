@@ -1,0 +1,52 @@
+name: Etsy Trend Raporu
+
+on:
+  schedule:
+    # Her Pazartesi sabahÄ± 06:00 UTC (TR saatiyle 09:00) Ã§alÄ±ÅŸÄ±r
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}   # GitHub arayÃ¼zÃ¼nden "Run workflow" ile elle de tetiklenebilir
+
+# Ä°ÅŸ depoya commit atacaÄŸÄ± iÃ§in yazma izni gerekiyor
+permissions:
+  contents: write
+
+jobs:
+  scrape-and-analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Depoyu Ã§ek
+        uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: BaÄŸÄ±mlÄ±lÄ±klarÄ± yÃ¼kle
+        run: pip install -r requirements.txt
+
+      - name: Scraper'Ä± Ã§alÄ±ÅŸtÄ±r
+        run: python scraper_v2.py
+
+      - name: SonuÃ§larÄ± depoya commit'le
+        run: |
+          git config user.name "etsy-trend-bot"
+          git config user.email "actions@github.com"
+          git add history.json reports/
+          git diff --cached --quiet && echo "DeÄŸiÅŸiklik yok, commit atlanÄ±yor" || git commit -m "HaftalÄ±k Etsy trend raporu $(date +'%Y-%m-%d')"
+          git push
+
+      - name: Telegram bota bildir
+        if: env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          REPORT_FILE=$(ls -t reports/*.md | head -n 1)
+          # Telegram mesaj limiti ~4096 karakter, o yÃ¼zden raporun sadece
+          # ilk kÄ±smÄ±nÄ± (Ã¶zet + en iyi Ã¼rÃ¼nler) mesaj olarak gÃ¶nderiyoruz.
+          SUMMARY=$(head -c 3500 "$REPORT_FILE")
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d parse_mode="Markdown" \
+            --data-urlencode text="$SUMMARY"

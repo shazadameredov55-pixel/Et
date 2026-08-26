@@ -1,85 +1,23 @@
-#!/bin/bash
-set -e
-
-echo "[1/9] Kullanıcı oluşturuluyor..."
-id -u firefoxuser &>/dev/null || useradd -m firefoxuser
-
-echo "[2/9] Paketler kuruluyor..."
-apt update
-apt install -y tor python3-stem iptables-persistent
-
-FIREFOX_UID=$(id -u firefoxuser)
-TOR_UID=$(id -u debian-tor)
-
-echo "[3/9] torrc ayarlanıyor..."
-grep -qxF "ControlPort 9051" /etc/tor/torrc || echo "ControlPort 9051" >> /etc/tor/torrc
-grep -qxF "CookieAuthentication 1" /etc/tor/torrc || echo "CookieAuthentication 1" >> /etc/tor/torrc
-grep -qxF "TransPort 9040" /etc/tor/torrc || echo "TransPort 9040" >> /etc/tor/torrc
-grep -qxF "DNSPort 5353" /etc/tor/torrc || echo "DNSPort 5353" >> /etc/tor/torrc
-
-systemctl restart tor@default
-systemctl enable tor@default
-sleep 5
-
-echo "[4/9] iptables kuralları temizleniyor..."
-iptables -F
-iptables -t nat -F
-
-echo "[5/9] NAT kuralları uygulanıyor..."
-iptables -t nat -A OUTPUT -m owner --uid-owner $FIREFOX_UID -j RETURN
-iptables -t nat -A OUTPUT -m owner --uid-owner $TOR_UID -j RETURN
-iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 5353
-iptables -t nat -A OUTPUT -p tcp --syn -j REDIRECT --to-ports 9040
-
-echo "[6/9] Filter kuralları uygulanıyor..."
-iptables -A OUTPUT -m owner --uid-owner $FIREFOX_UID -j ACCEPT
-iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A OUTPUT -o lo -j ACCEPT
-iptables -A OUTPUT -m owner --uid-owner $TOR_UID -j ACCEPT
-iptables -A OUTPUT -j REJECT
-
-echo "[7/9] IPv6 kapatılıyor..."
-ip6tables -F
-ip6tables -P OUTPUT DROP
-ip6tables -P INPUT DROP
-ip6tables -P FORWARD DROP
-
-echo "[8/9] DNS ayarlanıyor ve kurallar kalıcı kaydediliyor..."
-echo "nameserver 127.0.0.1" > /etc/resolv.conf
-netfilter-persistent save
-
-echo "[9/9] IP rotasyon servisi kuruluyor..."
-cat > /usr/local/bin/tor_rotate.py << 'EOF'
-#!/usr/bin/env python3
-import time
-from stem import Signal
-from stem.control import Controller
-
-with Controller.from_port(port=9051) as controller:
-    controller.authenticate()
-    while True:
-        time.sleep(600)
-        controller.signal(Signal.NEWNYM)
-EOF
-
-cat > /etc/systemd/system/tor-rotate.service << 'EOF'
-[Unit]
-Description=Tor IP Rotation
-After=tor@default.service
-
-[Service]
-ExecStart=/usr/bin/python3 /usr/local/bin/tor_rotate.py
-Restart=always
-User=root
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reexec
-systemctl enable tor-rotate.service
-systemctl start tor-rotate.service
-
-echo ""
-echo "✅ Kurulum tamamlandı."
-echo "Firefox'u şu komutla çalıştır: sudo -u firefoxuser firefox"
+sudo iptables -F && \
+sudo iptables -t nat -F && \
+sudo iptables -P INPUT ACCEPT && \
+sudo iptables -P OUTPUT ACCEPT && \
+sudo iptables -P FORWARD ACCEPT && \
+sudo ip6tables -F && \
+sudo ip6tables -P INPUT ACCEPT && \
+sudo ip6tables -P OUTPUT ACCEPT && \
+sudo ip6tables -P FORWARD ACCEPT && \
+sudo netfilter-persistent save && \
+echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf && \
+sudo systemctl stop tor@default && \
+sudo systemctl disable tor@default && \
+sudo systemctl stop tor-rotate.service && \
+sudo systemctl disable tor-rotate.service && \
+sudo userdel -r firefoxuser && \
+sudo sed -i '/ControlPort 9051/d; /CookieAuthentication 1/d; /TransPort 9040/d; /DNSPort 5353/d' /etc/tor/torrc && \
+sudo rm -f /usr/local/bin/tor_rotate.py && \
+sudo rm -f /etc/systemd/system/tor-rotate.service && \
+sudo systemctl daemon-reload && \
+sudo rm -f /tmp/setup.sh && \
+sudo apt purge -y iptables-persistent netfilter-persistent && \
+echo "TAMAMEN TEMİZLENDİ - Sistem baştaki haline döndü."

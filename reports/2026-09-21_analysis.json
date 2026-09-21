@@ -1,0 +1,14 @@
+{
+  "trend": {
+    "count": 0,
+    "items": []
+  },
+  "seasonal": {
+    "count": 0,
+    "items": []
+  },
+  "evergreen": {
+    "count": 0,
+    "items": []
+  }
+}
